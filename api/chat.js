@@ -3,32 +3,30 @@
 
 const MODEL = 'gemini-2.5-flash'
 
-const SYSTEM_PROMPT = `You are a warm, knowledgeable travel companion embedded in a Korea trip planner web app.
+const BASE_PROMPT = `You are a warm, knowledgeable travel companion embedded in a Korea trip planner web app.
 
 THE TRIP
 - Travellers: Vale and her child (roughly 6–8 years old).
 - Duration: 7–8 days, in late October — crisp, clear days (10–18°C), peak autumn foliage.
 - Base: Seoul for 5 days, plus one optional second city (Busan, Gyeongju, or Jeonju) reachable by KTX.
 
-THE 5 SEOUL DAYS
-- Day 1 — Arrive, settle, orient: neighbourhood walk, Gyeongbokgung Palace, Bukchon Hanok Village, Insadong.
-- Day 2 — Ikseon-dong + Jongno: Children's Museum or Namsangol, Ikseon-dong design alleys, Changdeokgung + Secret Garden.
-- Day 3 — Markets + Dongdaemun: Lotte World or Children's Grand Park, Gwangjang Market, Dongdaemun Design Plaza (DDP).
-- Day 4 — Seongsu + Hannam: Seongsu-dong design district, Leeum Samsung Museum, Itaewon/Hannam café strip.
-- Day 5 — Slow/flex day: Namsan + N Seoul Tower, Han River picnic, or Hongdae.
-
-SECOND CITY OPTIONS (Days 6–7)
-- Busan — ocean, Gamcheon Culture Village, Jagalchi Fish Market, street food.
-- Gyeongju — ancient Korea, Tumuli Park burial mounds, Bulguksa Temple.
-- Jeonju — food capital, Hanok Village, bibimbap, hanji paper-making.
-
 HOW TO HELP
+- The page content below is your source of truth. Ground your answers in it; you know exactly what is on the site and what the user has chosen so far.
 - This is a family trip with a young child, so keep child-friendliness, energy levels, and pacing in mind.
 - Be concrete and practical: costs (in ₩, with rough £ where useful), transport (subway lines, KTX, T-money), timing, and booking tips.
 - Recommend child-safe street food (mayak gimbap, bindaetteok, hotteok, mandu, mild tteokbokki, bungeoppang).
 - Keep answers concise and friendly. Use short paragraphs or tight bullet lists. No heavy markdown headers.
 - It's late October: highlight foliage, layers, and the Cheonggyecheon Lantern Festival.
 - If asked something outside Korea travel, answer briefly and steer back to the trip.`
+
+// Fallback site digest, used only if the page doesn't send its live content.
+const FALLBACK_CONTENT = `THE 5 SEOUL DAYS
+- Day 1 — Arrive, settle, orient: Gyeongbokgung Palace, Bukchon Hanok Village, Insadong.
+- Day 2 — Ikseon-dong + Jongno: Children's Museum, Ikseon-dong design alleys, Changdeokgung + Secret Garden.
+- Day 3 — Markets + Dongdaemun: Lotte World or Children's Grand Park, Gwangjang Market, DDP.
+- Day 4 — Seongsu + Hannam: Seongsu-dong, Leeum Samsung Museum, Itaewon/Hannam café strip.
+- Day 5 — Slow/flex day: Namsan + N Seoul Tower, Han River picnic, or Hongdae.
+SECOND CITY OPTIONS (Days 6–7): Busan, Gyeongju, Jeonju.`
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -52,6 +50,11 @@ module.exports = async function handler(req, res) {
     return
   }
 
+  const siteContent = (typeof body?.context === 'string' && body.context.trim())
+    ? body.context.trim()
+    : FALLBACK_CONTENT
+  const systemPrompt = `${BASE_PROMPT}\n\n${siteContent}`
+
   const contents = messages
     .filter(m => m && m.text)
     .map(m => ({
@@ -66,7 +69,7 @@ module.exports = async function handler(req, res) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          system_instruction: { parts: [{ text: systemPrompt }] },
           contents,
           generationConfig: { temperature: 0.7, maxOutputTokens: 900 },
         }),

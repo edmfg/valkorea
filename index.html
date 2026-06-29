@@ -1068,6 +1068,76 @@ function MyPlanView({ selections, sliderState }) {
   )
 }
 
+// ── CHAT CONTEXT ──────────────────────────────────────────────────────────────
+// Serialises the live site content + the user's current plan into text, so the
+// Gemini guide always reflects exactly what's on the page (never goes stale).
+function buildTripContext(selections, sliderState) {
+  const L = []
+  L.push('=== FULL SITE CONTENT (this is the source of truth — always use it) ===')
+
+  L.push('\n## DAILY ITINERARY')
+  DAYS.forEach(day => {
+    L.push(`\n${day.label}: ${day.title} — ${day.subtitle}`)
+    day.slots.forEach(slot => {
+      if (slot.type === 'cards') {
+        (slot.options || []).forEach(o => {
+          L.push(`  • [${slot.label}] ${o.title}: ${o.description} (${o.practical || ''})`)
+        })
+        if (slot.snack) L.push(`  • [Snack] ${slot.snack.name}: ${slot.snack.description} (${slot.snack.cost})`)
+      } else if (slot.type === 'sliders') {
+        const recs = MEAL_RECS[day.id]?.[slot.id] || []
+        recs.forEach(r => L.push(`  • [${slot.label} option] ${r.label}: ${r.desc} (${r.cost})`))
+      }
+    })
+  })
+
+  L.push('\n## SECOND-CITY OPTIONS (Days 6–7, by KTX from Seoul)')
+  SECOND_CITIES.forEach(c => {
+    L.push(`\n${c.name} — ${c.tagline}`)
+    c.highlights.forEach(h => L.push(`  • ${h.name}: ${h.description} (${h.practical})`))
+  })
+
+  L.push('\n## CURATED SHORTLISTS')
+  SHORTLISTS.forEach(list => {
+    L.push(`\n${list.label} [${list.columns.join(' | ')}]`)
+    list.rows.forEach(row => L.push(`  • ${row.join(' | ')}`))
+  })
+
+  L.push('\n## PRACTICAL NOTES')
+  PRACTICAL_NOTES.forEach(n => {
+    L.push(`\n${n.title}`)
+    n.content.forEach(p => L.push(`  • ${p}`))
+  })
+
+  // The user's current plan / selections
+  const plan = []
+  DAYS.forEach(day => {
+    day.slots.forEach(slot => {
+      if (slot.type === 'cards') {
+        const sel = selections[`${day.id}-${slot.id}`]
+        const opt = slot.options?.find(o => o.id === sel)
+        if (opt) plan.push(`${day.label} ${slot.label}: ${opt.title}`)
+      } else if (slot.type === 'sliders') {
+        const adv = sliderState[`${day.id}-${slot.id}-adv`] ?? 0
+        const pace = sliderState[`${day.id}-${slot.id}-pace`] ?? 0
+        const q = (adv >= 50 ? 1 : 0) * 2 + (pace >= 50 ? 1 : 0)
+        const recs = MEAL_RECS[day.id]?.[slot.id] || []
+        const rec = recs[q] || recs[0]
+        if (rec && (adv || pace || selections[`${day.id}-${slot.id}`])) {
+          plan.push(`${day.label} ${slot.label} (${QUADRANT_LABELS[q]}): ${rec.label}`)
+        }
+      }
+    })
+  })
+  const city = SECOND_CITIES.find(c => c.id === selections['secondcity'])
+  if (city) plan.push(`Second city chosen: ${city.name}`)
+
+  L.push('\n## THE USER\'S CURRENT PLAN (what they have selected so far)')
+  L.push(plan.length ? plan.join('\n') : 'Nothing selected yet — they are still browsing.')
+
+  return L.join('\n')
+}
+
 // ── CHAT WIDGET ───────────────────────────────────────────────────────────────
 function SparkleIcon({ size = 22 }) {
   return (
@@ -1077,7 +1147,7 @@ function SparkleIcon({ size = 22 }) {
   )
 }
 
-function ChatWidget() {
+function ChatWidget({ selections, sliderState }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([
     { role: 'assistant', text: "Hi! I'm your Korea trip guide ✦ Ask me about the itinerary, food, getting around Seoul, or what to do with a child in tow." },
@@ -1108,7 +1178,7 @@ function ChatWidget() {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: next.slice(1) }),
+        body: JSON.stringify({ messages: next.slice(1), context: buildTripContext(selections, sliderState) }),
       })
       const data = await r.json()
       if (!r.ok || !data.reply) {
@@ -1343,7 +1413,7 @@ function App() {
         </div>
       </div>
 
-      <ChatWidget />
+      <ChatWidget selections={selections} sliderState={sliderState} />
     </div>
   )
 }
