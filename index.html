@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Korea Trip Planner</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['-apple-system','BlinkMacSystemFont','"SF Pro Display"','"SF Pro Text"','system-ui','ui-sans-serif','sans-serif'],
+          },
+        },
+      },
+    }
+  </script>
+
+  <style>
+    * { -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { height: 4px; width: 4px; }
+    ::-webkit-scrollbar-track { background: #f7f5fb; }
+    ::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 2px; }
+    .range-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; width: 100%; }
+    .range-slider:focus { outline: none; }
+    .range-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; }
+    .range-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #7c3aed; margin-top: -7px; box-shadow: 0 0 8px rgba(124,58,237,0.4); transition: box-shadow 0.2s; }
+    .range-slider::-webkit-slider-thumb:hover { box-shadow: 0 0 16px rgba(124,58,237,0.65); }
+    .range-slider::-moz-range-track { height: 4px; border-radius: 2px; background: #e5e7eb; }
+    .range-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #7c3aed; border: none; box-shadow: 0 0 8px rgba(124,58,237,0.4); }
+    .leaflet-popup-content b { color: #1e1527; }
+    .leaflet-popup-content small { color: #7c3aed; }
+  </style>
+</head>
+<body class="bg-[#f7f5fb] font-sans">
+  <div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── ICON REPLACEMENTS ─────────────────────────────────────────────────────────
+function Check({ size = 16, className = '', strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+function ChevronDown({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+function ChevronUp({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  )
+}
+
+// ── IMAGE HELPER ──────────────────────────────────────────────────────────────
+const img = (seed) => `https://picsum.photos/seed/${seed}/600/320`
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const DAYS = [
+  {
+    id: 'day1', label: 'Day 1', title: 'Arrive, Settle, Orient',
+    subtitle: "Easy landing day. Don't try to do too much.",
+    slots: [
+      {
+        id: 'morning', label: 'Morning', type: 'cards',
+        options: [{
+          id: 'checkin', image: img('seoul-arrive-neighbourhood'),
+          title: 'Check In & Neighbourhood Walk',
+          description: "Check in, walk the neighbourhood, find a café. October in Seoul is beautiful — crisp, clear, still warm enough to sit outside.",
+          practical: 'Free · Low energy required',
+          pros: ['Sets a calm tone for the trip','Good for jet lag','Lets you find your bearings'],
+          cons: ['Not much to show for the day','Child may want action sooner','Neighbourhood varies by hotel'],
+        }],
+      },
+      { id: 'lunch', label: 'Lunch', type: 'sliders', dayId: 'day1' },
+      {
+        id: 'afternoon', label: 'Afternoon', type: 'cards',
+        snack: { name: 'Hotteok at Gyeongbokgung gates', description: 'Sweet filled pancake from the street stalls outside the palace — a perfect child pacifier mid-afternoon.', cost: '₩1,500' },
+        options: [
+          {
+            id: 'gyeongbokgung', image: img('gyeongbokgung-palace'),
+            title: 'Gyeongbokgung Palace',
+            description: "The most photogenic of Seoul's five palaces. Changing of the guard at 2pm is theatrical enough to hold a child's attention. Hanbok rental at the gates means entry is free in traditional dress.",
+            practical: '₩3,000 / free in hanbok · Subway line 3 · 2–3 hrs',
+            pros: ['Genuinely impressive scale','Guard ceremony is kid-friendly','Free in hanbok — fun activity'],
+            cons: ['Very busy on weekends','Large site — tiring for small legs','Better in morning light'],
+          },
+          {
+            id: 'bukchon', image: img('bukchon-hanok-alley'),
+            title: 'Bukchon Hanok Village',
+            description: 'Steep alley neighbourhood of traditional tile-roofed houses. More interesting as a wander than a destination. Best in late afternoon for light and fewer crowds.',
+            practical: 'Free · 15 min walk from Gyeongbokgung · 1–1.5 hrs',
+            pros: ['Beautiful October light','Free, no planning needed','Quiet and photogenic'],
+            cons: ['Steep — hard on tired legs','Not much for children to do','Mostly private residences'],
+          },
+        ],
+      },
+      { id: 'dinner', label: 'Dinner', type: 'sliders', dayId: 'day1' },
+    ],
+  },
+  {
+    id: 'day2', label: 'Day 2', title: 'Ikseon-dong + Jongno',
+    subtitle: 'The most interesting neighbourhood in central Seoul right now. Hanok alleys converted into restaurants, design studios, concept stores, tea houses.',
+    slots: [
+      {
+        id: 'morning', label: 'Morning', type: 'cards',
+        options: [
+          {
+            id: 'folk-museum', image: img('korea-folk-museum-children'),
+            title: "Seoul Children's Museum",
+            description: "Inside Gyeongbokgung grounds. Interactive exhibitions on Korean daily life — hands-on enough for 6–8 year olds (dress-up, games, crafts).",
+            practical: 'Included in palace ticket · 1.5–2 hrs · Opens 9am',
+            pros: ['Hands-on — child will love it','Covers entry cost efficiently','Air-conditioned backup if cold'],
+            cons: ['Can be crowded weekends','Requires Gyeongbokgung ticket','Adult interest is limited'],
+          },
+          {
+            id: 'namsangol', image: img('namsangol-hanok-craft'),
+            title: 'Namsangol Hanok Village',
+            description: 'Reconstructed traditional village with hands-on craft activities — calligraphy, traditional games, kite-making in October.',
+            practical: 'Free · Subway line 3/4, Chungmuro · Check October activity schedule',
+            pros: ['Free entry','Quieter than Gyeongbokgung','Craft activities for children'],
+            cons: ['Smaller, less impressive scale','Activity schedule varies','Less to see if no activities on'],
+          },
+        ],
+      },
+      { id: 'lunch', label: 'Lunch', type: 'sliders', dayId: 'day2' },
+      {
+        id: 'afternoon', label: 'Afternoon', type: 'cards',
+        snack: { name: 'Ikseon-dong bingsu or rice cake', description: 'Shaved ice (bingsu) or tteok (rice cake) from one of the small alley shops — ideal for wandering pace.', cost: '₩4,000–7,000' },
+        options: [
+          {
+            id: 'ikseon-wander', image: img('ikseon-dong-design-alley'),
+            title: 'Ikseon-dong Wander + Design',
+            description: 'The best small design and ceramics shops in Seoul. Slow walk, no agenda. October light in these alleys is excellent. Child can handle this with a snack in play.',
+            practical: 'Free to wander · Buy something small · Anguk subway',
+            pros: ['Beautiful October light','Best design browsing in Seoul','Relaxed pace'],
+            cons: ['Child interest limited without snack bribe','No specific highlights — must wander','Shops close early some days'],
+          },
+          {
+            id: 'changdeokgung', image: img('changdeokgung-secret-garden-autumn'),
+            title: 'Changdeokgung + Secret Garden',
+            description: 'The most beautiful of Seoul\'s palaces. The Huwon (Secret Garden) is a guided tour through a wooded royal garden — genuinely stunning in late October when leaves turn. Book ahead.',
+            practical: '₩8,000 palace / ₩5,000 garden · Tours 11:30am & 2:30pm · Book at cultureheritagetours.kr',
+            pros: ['Peak October foliage destination','Genuinely unmissable','Guided — no effort required'],
+            cons: ['Must book ahead','Fixed tour times — inflexible','Expensive if doing both palace + garden'],
+          },
+        ],
+      },
+      { id: 'dinner', label: 'Dinner', type: 'sliders', dayId: 'day2' },
+    ],
+  },
+  {
+    id: 'day3', label: 'Day 3', title: 'Markets + Dongdaemun',
+    subtitle: "Full sensory day. Probably your child's favourite.",
+    slots: [
+      {
+        id: 'morning', label: 'Morning', type: 'cards',
+        options: [
+          {
+            id: 'lotte-world', image: img('lotte-world-theme-park'),
+            title: 'Lotte World (Half-Day)',
+            description: "Seoul's large indoor/outdoor theme park. Go early, leave by noon before queues build. The indoor section has rides, an ice rink, and a castle that will register as Actual Magic for a 6–8 year old.",
+            practical: '₩62,000 child / ₩72,000 adult · Subway line 2, Jamsil · Opens 9:30am · Book online',
+            pros: ['Child will rate this very highly','Indoor — rain-proof','Ice rink is a genuine surprise'],
+            cons: ['Expensive','Exhausting — plan a slow afternoon','Queues build fast after 11am'],
+          },
+          {
+            id: 'grand-park', image: img('seoul-childrens-grand-park-zoo'),
+            title: "Seoul Children's Grand Park",
+            description: 'A large park with a free zoo, amusement rides, and wide open green space. Feels like Seoul actually living rather than performing. Less intense than Lotte World.',
+            practical: "Park & zoo free · Rides ₩1,000–3,000 · Subway line 5, Children's Grand Park",
+            pros: ['Free entry and zoo','Good for all energy levels','Real Seoul families — not touristy'],
+            cons: ['Less thrilling for a theme-park-expecting child','Rides are small scale','Further from central Seoul'],
+          },
+        ],
+      },
+      { id: 'lunch', label: 'Lunch', type: 'sliders', dayId: 'day3' },
+      {
+        id: 'afternoon', label: 'Afternoon', type: 'cards',
+        snack: { name: 'Bungeoppang near DDP', description: 'Fish-shaped waffle filled with sweet red bean paste — the definitive Seoul autumn street food, sold from small carts near Dongdaemun.', cost: '₩1,000–1,500 each' },
+        options: [
+          {
+            id: 'gwangjang-market', image: img('gwangjang-market-stalls-food'),
+            title: 'Gwangjang Market — The Real One',
+            description: 'Bindaetteok (mung bean pancake), mayak gimbap, japchae — eat at the stalls, not the restaurant section at the back. Afternoon is calmer than evening.',
+            practical: '₩3,000–8,000 per dish · Subway line 1, Jongno 5-ga · 1–1.5 hrs',
+            pros: ['Best market food in Seoul','Child-safe options available','Afternoon light is excellent'],
+            cons: ['Can be overwhelming for first-timers','Cash only at most stalls','Tight spaces with small children'],
+          },
+          {
+            id: 'ddp', image: img('dongdaemun-design-plaza-architecture'),
+            title: 'Dongdaemun Design Plaza (DDP)',
+            description: "Zaha Hadid's building. Standing inside it with a child is something else — the curves read as science fiction. October usually has a design or fashion exhibition. Child will want to run across every curved surface.",
+            practical: 'Building free · Exhibitions ₩5,000–15,000 · Subway line 2/4/5, Dongdaemun · 1.5–2 hrs',
+            pros: ['Architecturally unmissable','Child finds the curves exciting','Free to explore exterior'],
+            cons: ['Exhibition quality varies','Busy on weekends','Not much shade if sunny'],
+          },
+        ],
+      },
+      { id: 'dinner', label: 'Dinner', type: 'sliders', dayId: 'day3' },
+    ],
+  },
+  {
+    id: 'day4', label: 'Day 4', title: 'Seongsu + Hannam',
+    subtitle: 'The two neighbourhoods that best show you what Seoul is becoming.',
+    slots: [
+      {
+        id: 'morning', label: 'Morning', type: 'cards',
+        options: [
+          {
+            id: 'seongsu', image: img('seongsu-industrial-art-mural'),
+            title: 'Seongsu-dong District',
+            description: "Seoul's design and contemporary art district inside a former industrial zone. Converted factories housing galleries, studios, concept stores. Street art concentrated around the main drag. Daelim Warehouse coffee is excellent.",
+            practical: 'Subway line 2, Seongsu · 2–3 hrs · Free to wander · Cafés ₩5,000–8,000',
+            pros: ['Best coffee in Seoul','Child loves the murals and scale','Very photogenic'],
+            cons: ['Spread out — requires walking','Some galleries adults-only in feel','Less structured than a museum'],
+          },
+          {
+            id: 'leeum-morning', image: img('leeum-museum-art-hannam'),
+            title: 'Leeum Samsung Museum (Morning)',
+            description: 'One of the best collections of Korean contemporary art, in a building by Mario Botta, Jean Nouvel, and Rem Koolhaas. Go in the morning when it\'s quieter.',
+            practical: '₩10,000 adults / free under 12 · Subway line 6, Hangangjin · 1.5–2 hrs',
+            pros: ['World-class collection','Free for the child','Architecture is itself worth it'],
+            cons: ['Quieter for children — needs adult-led engagement','Check temporary exhibition schedule','Less physically engaging for 6–8 year olds'],
+          },
+        ],
+      },
+      { id: 'lunch', label: 'Lunch', type: 'sliders', dayId: 'day4' },
+      {
+        id: 'afternoon', label: 'Afternoon', type: 'cards',
+        snack: { name: 'Patbingsu at a Hannam café', description: 'Shaved ice with red bean, condensed milk, and toppings — the child will enjoy both the size and the spectacle of it arriving at the table.', cost: '₩9,000–14,000' },
+        options: [
+          {
+            id: 'leeum', image: img('leeum-samsung-contemporary-art'),
+            title: 'Leeum Samsung Museum of Art',
+            description: 'If not visited in the morning: permanent collection has Korean celadon and ancient art downstairs, contemporary upstairs. The architecture of the building is itself worth the visit.',
+            practical: '₩10,000 adults / free under 12 · Subway line 6, Hangangjin · 1.5–2 hrs',
+            pros: ['Best contemporary Korean art collection','Three different architects — each section distinct','Calm, uncrowded afternoon'],
+            cons: ['Needs 2 hrs minimum to do properly','Child engagement depends on exhibitions','Check temporary exhibition dates'],
+          },
+          {
+            id: 'itaewon-walk', image: img('itaewon-hannam-cafe-street'),
+            title: 'Itaewon Hill + Hannam Café Strip',
+            description: 'Walk the hill above Itaewon toward Hannam-dong. The best café-window people-watching in Seoul — expat Seoul, fashion Seoul, and old neighbourhood Seoul in the same few blocks.',
+            practical: 'Free to walk · Subway line 6, Itaewon or Hangangjin · 2 hrs',
+            pros: ['Most eclectic people-watching in Seoul','Many good café options','Good for winding down the day'],
+            cons: ['Less structured — easy to get lost','Some areas not child-safe after dark','Hilly — tiring'],
+          },
+        ],
+      },
+      { id: 'dinner', label: 'Dinner', type: 'sliders', dayId: 'day4' },
+    ],
+  },
+  {
+    id: 'day5', label: 'Day 5', title: 'Slow Day / Flex Day',
+    subtitle: 'Build this around energy levels. If the trip has been intense, this is your recovery day. If you still have pace, use one of the options below.',
+    slots: [
+      {
+        id: 'morning', label: 'Morning — Pick One', type: 'cards',
+        options: [
+          {
+            id: 'namsan', image: img('namsan-tower-seoul-autumn'),
+            title: 'Namsan + N Seoul Tower',
+            description: 'Wooded hill in the centre of Seoul. Take the cable car up — the child will rate this. Walk forested paths, look at the city from the top. October foliage makes this genuinely beautiful.',
+            practical: '₩9,000 cable car return / observatory ₩21,000 adult, ₩15,000 child',
+            pros: ['Cable car is a highlight for children','Stunning October foliage','Good city views'],
+            cons: ['Tower itself is touristy','Busy on clear days','Observatory expensive for the views'],
+          },
+          {
+            id: 'hangang', image: img('han-river-yeouido-picnic-bikes'),
+            title: 'Han River Picnic',
+            description: 'Walk or bike Yeouido Hangang Park. Koreans come here to eat convenience store food on the grass. Completely unpretentious. Convenience store picnic: kimbap, chicken, fruit, sikhye — ₩15,000–20,000 total.',
+            practical: 'Bike rental ₩3,000/hr · Subway line 5, Yeouido · Bring a blanket',
+            pros: ['Very local experience','Low cost, low planning','Child can bike freely'],
+            cons: ["Not a 'destination' — needs the right energy",'Exposed to wind in October','Less interesting without good weather'],
+          },
+          {
+            id: 'hongdae', image: img('hongdae-busker-street-performer'),
+            title: 'Hongdae (Afternoon)',
+            description: 'University district, young, chaotic, full of street performers. Best on a weekend afternoon when buskers are out. Your child will be fascinated.',
+            practical: 'Free · Subway line 2, Hongik University · Best weekend 2–5pm',
+            pros: ['Street performers captivate children','Free and spontaneous','Lots of street food'],
+            cons: ['Chaotic — easy to lose a child momentarily','Weekend crowds can be intense','Less interesting on weekdays'],
+          },
+        ],
+      },
+      { id: 'lunch', label: 'Lunch', type: 'sliders', dayId: 'day5' },
+      {
+        id: 'afternoon', label: 'Afternoon', type: 'cards',
+        snack: { name: 'Convenience store (CU / GS25)', description: 'Banana milk, corn dog, kimbap triangle — the definitive Korean child snack experience. Let them pick.', cost: '₩2,000–5,000 total' },
+        options: [
+          {
+            id: 'afternoon-free', image: img('seoul-cafe-window-afternoon'),
+            title: 'Café Sit + People Watch',
+            description: "Find a café with a street view. Order whatever the café's signature thing is. Let the child draw or play while you watch the street. This is what Seoul looks like when you're not trying.",
+            practical: '₩6,000–10,000 per drink · No plan required',
+            pros: ['Restorative','Works anywhere in Seoul','Child gets downtime too'],
+            cons: ['Passive — not memorable as an activity','Child may get restless','Dependent on finding the right café'],
+          },
+          {
+            id: 'shopping-souvenirs', image: img('seoul-insadong-souvenir-craft'),
+            title: 'Insadong — Last Souvenirs',
+            description: 'Return to Insadong for any last-minute craft picks, small gifts, or stationery. October evenings are lantern-lit — nice for a final walk.',
+            practical: 'Free to browse · Subway line 3, Anguk · Shops open until 9pm',
+            pros: ['Practical — solves the souvenir problem','Good evening atmosphere in October','Child-appropriate items everywhere'],
+            cons: ['Tourist-facing prices in some shops','Already seen Day 1','Can feel like a chore'],
+          },
+        ],
+      },
+      { id: 'dinner', label: 'Dinner', type: 'sliders', dayId: 'day5' },
+    ],
+  },
+]
+
+const MEAL_RECS = {
+  day1: {
+    lunch: [
+      { label: 'CU or GS25 kimbap triangle', desc: 'Grab-and-go from the nearest convenience store. Kimbap, onigiri, banana milk. Eat on a bench. Seoul convenience stores are genuinely good.', cost: '₩3,000–6,000' },
+      { label: 'Café lunch near the hotel', desc: 'Find a neighbourhood café doing a simple lunch set — rice, soup, one or two side dishes. Low pressure, good for Day 1.', cost: '₩9,000–13,000' },
+      { label: 'Tteokbokki pojangmacha', desc: 'Find a street stall, point at what looks good, sit on a plastic stool. Ask for 덜 맵게 (less spicy). This is the most Seoul thing you can do on Day 1.', cost: '₩3,000–5,000' },
+      { label: 'Sit-down Korean set near Gyeongbokgung', desc: 'A proper dosirak (lunch box) restaurant near the palace. Rice, soup, 4–5 small side dishes. Take your time — no rush on Day 1.', cost: '₩10,000–15,000' },
+    ],
+    dinner: [
+      { label: 'Gwangjang Market edge — bindaetteok stall', desc: "Don't go deep. Find a stall near the entrance, get bindaetteok and mayak gimbap, sit on a plastic stool. Fast and completely child-manageable.", cost: '₩3,000–7,000 per person' },
+      { label: 'Insadong café dinner', desc: 'Find a café or small restaurant on the lantern-lit Insadong strip. October evenings here are atmospheric. No rush.', cost: '₩10,000–18,000' },
+      { label: 'Gwangjang Market full dive', desc: 'Go properly into the market. Find bindaetteok, japchae, mayak gimbap. Eat standing or on stools. Chaotic, loud, very good.', cost: '₩5,000–10,000 per person' },
+      { label: 'Samgyeopsal (pork belly BBQ), nearby restaurant', desc: 'Table grill, pork belly, lettuce wraps, soju/juice. Classic Seoul dinner. Takes an hour minimum — child will find grilling interactive.', cost: '₩13,000–18,000 per person' },
+    ],
+  },
+  day2: {
+    lunch: [
+      { label: 'Convenience store near Ikseon', desc: 'Quick stop — kimbap, ramyeon cup, banana milk. Eat on the steps and watch the alley.', cost: '₩3,000–5,000' },
+      { label: 'Ikseon-dong dosirak restaurant', desc: 'Walk into any restaurant with a lunch set visible. Rice, soup, side dishes. Low tables, warm staff — let the child explore the menu.', cost: '₩9,000–14,000' },
+      { label: 'Tteokbokki and mandu, Jongno street', desc: 'Find a street stall combo of rice cake and steamed dumplings. Point, pay, eat on a stool. Total street food experience.', cost: '₩4,000–6,000' },
+      { label: 'Ikseon café set lunch', desc: 'Several cafés in Ikseon do a sit-down lunch — usually a Korean-Western fusion. Unhurried, nice interiors. Good for browsing between courses.', cost: '₩12,000–18,000' },
+    ],
+    dinner: [
+      { label: 'Hotteok at Jongno 3-ga', desc: 'Grab a hotteok from the pojangmacha area and walk. Sweet, filling, ₩1,000. This is dinner for a tired Day 2.', cost: '₩1,000–3,000' },
+      { label: 'Cafe Onion Anguk — pastry dinner', desc: 'Sit in the converted hanok, order coffee and pastries. Unambitious but genuinely lovely. Child will find the space interesting.', cost: '₩6,000–10,000' },
+      { label: 'Jongno 3-ga pojangmacha crawl', desc: 'Walk the covered stall area, order from multiple vendors, eat on plastic stools. Old Seoul, real people. Very fast.', cost: '₩3,000–6,000 per person' },
+      { label: 'Korean BBQ near Anguk', desc: 'Sit-down grilled meat, 1.5–2 hrs. Pork belly or beef short ribs. Slow and interactive.', cost: '₩15,000–22,000 per person' },
+    ],
+  },
+  day3: {
+    lunch: [
+      { label: 'Gwangjang Market — bindaetteok only', desc: 'One stall, one dish. Mung bean pancake, fried crispy, eaten at the counter. No deliberation needed.', cost: '₩4,000–5,000' },
+      { label: 'Gwangjang Market sit-down at a stall', desc: 'Get bindaetteok, mayak gimbap, japchae. Eat slowly, watch the stalls fill up. This is the full Gwangjang experience.', cost: '₩8,000–15,000 per person' },
+      { label: 'Gwangjang + DDP food truck', desc: 'Quick Gwangjang snack then walk to DDP area — food trucks usually set up outside. Mix of Korean and international.', cost: '₩5,000–9,000' },
+      { label: 'Gwangjang Market deep dive', desc: 'Try everything: bindaetteok, gimbap, japchae, maybe kimchi jeon. Order one dish at multiple stalls. Long and delicious.', cost: '₩12,000–20,000 per person' },
+    ],
+    dinner: [
+      { label: 'Cheonggyecheon stream snacks', desc: 'Walk the stream at night, buy hotteok or bungeoppang from stalls along the way. Lantern Festival atmosphere in October.', cost: '₩2,000–4,000' },
+      { label: 'Sit-down near DDP — doenjang jjigae', desc: 'Warm fermented soybean soup set dinner near Dongdaemun. Restorative after a big day. Child-manageable mild version.', cost: '₩9,000–13,000' },
+      { label: 'Jjajangmyeon delivery to hotel', desc: "Day 3 will have been a lot. Coupang Eats, jjajangmyeon and jjamppong. No judgement. This is completely valid.", cost: '₩8,000–12,000 via Coupang Eats' },
+      { label: 'Korean fried chicken + delivery', desc: 'Order from Goobne or BBQ Chicken. Eat in the hotel with the TV on. Rest.', cost: '₩18,000–24,000 for two' },
+    ],
+  },
+  day4: {
+    lunch: [
+      { label: 'Hotteok + mandu, Seongsu street', desc: 'Sweet pancake and steamed dumplings from street stalls near Seongsu station. Quick and completely child-safe.', cost: '₩3,000–5,000' },
+      { label: 'Doenjang jjigae set, Seongsu restaurant', desc: 'Small restaurant lunch set. Fermented soybean soup, rice, side dishes. October-appropriate warmth.', cost: '₩9,000–13,000' },
+      { label: 'Daelim Warehouse coffee + sandwich', desc: "Go for the coffee, get whatever food they're offering. Industrial space, good beans, comfortable seats.", cost: '₩8,000–14,000' },
+      { label: 'Slow lunch at a Seongsu café-restaurant', desc: 'Several converted factory restaurants do proper sit-down Korean-Western lunches. Unhurried, good design.', cost: '₩14,000–22,000' },
+    ],
+    dinner: [
+      { label: 'Convenience store, Hannam-dong', desc: "It's been a full day. CU or GS25 — kimbap, ramyeon, whatever. Eat on the hill steps. No shame.", cost: '₩4,000–8,000' },
+      { label: 'Café dinner, Hannam hill strip', desc: "Pick a café with a street view. Order food if available, otherwise coffee and dessert. People-watch until you're ready to go back.", cost: '₩8,000–14,000' },
+      { label: 'Galbi (short ribs) restaurant, Itaewon', desc: 'Beef short ribs, table grill, proper sit-down. More international-facing than other BBQ options — easier if uncertain about ordering.', cost: '₩20,000–30,000 per person' },
+      { label: 'Korean-Western fusion, Hannam', desc: 'Several Hannam restaurants do excellent Korean-inspired menus in a sit-down setting. Less chaotic than BBQ, good for a quieter end to the day.', cost: '₩18,000–28,000 per person' },
+    ],
+  },
+  day5: {
+    lunch: [
+      { label: 'Han River convenience store picnic', desc: 'CU at Yeouido park. Kimbap, fried chicken, sikhye, fruit. Sit on the grass. Very local, very right.', cost: '₩12,000–18,000 total' },
+      { label: 'Café lunch near Namsan or Hongdae', desc: 'Sit-down café set wherever you are. No agenda. Last full day — choose what you feel like.', cost: '₩10,000–16,000' },
+      { label: 'Hongdae street food — multiple stops', desc: 'Walk Hongdae, buy from street stalls as you go. Tteokbokki, corn dog, bungeoppang. The child picks the order.', cost: '₩5,000–9,000' },
+      { label: 'Sit-down Korean last lunch', desc: 'Find a good dosirak or bibimbap restaurant. This is your last chance for a proper Korean lunch set. Make it count.', cost: '₩10,000–18,000' },
+    ],
+    dinner: [
+      { label: 'Whatever is nearby', desc: "Last night, low effort. Convenience store, delivery, or the nearest restaurant. You've done the work — tonight is rest.", cost: '₩6,000–12,000' },
+      { label: 'Neighbourhood restaurant near hotel', desc: 'Find something good within walking distance. Samgyeopsal or doenjang jjigae. Familiar by now.', cost: '₩12,000–18,000' },
+      { label: 'Gwangjang Market — last go', desc: "If you didn't do it properly earlier, now is the time. Bindaetteok, gimbap, plastic stools, the whole thing.", cost: '₩8,000–15,000 per person' },
+      { label: 'Korean BBQ sendoff dinner', desc: 'Book a good BBQ restaurant for a proper last dinner. Meat, sides, soju. The child grills.', cost: '₩18,000–28,000 per person' },
+    ],
+  },
+}
+
+const SECOND_CITIES = [
+  {
+    id: 'busan', name: 'Busan', emoji: '🌊', image: img('busan-gamcheon-ocean'),
+    tagline: 'Ocean, dramatic scale, street food — a city that feels nothing like Seoul.',
+    highlights: [
+      { name: 'Gamcheon Culture Village', description: 'Hillside neighbourhood of colourful stacked houses, murals, and small art installations. Your child will find the maze-like alleys exciting.', practical: 'Free entry · Steep in places — comfortable shoes · 2 hrs' },
+      { name: 'Jagalchi Fish Market', description: "Korea's largest seafood market, right on the water. Walk through the ground floor wet market and watch. The scale is extraordinary.", practical: 'Free to walk · Buy something small · Morning best' },
+      { name: 'Haeundae Beach', description: 'October means almost no tourists, local families walking dogs, vendors selling hotteok. The beach in off-season has a different quality.', practical: 'Free · Your child runs' },
+      { name: 'Gukje Market', description: "Old covered market, chaotic and real. The ssiat hotteok here is one of the best street food items in Korea.", practical: '₩1,500 per hotteok · Worth the 10-minute wait' },
+    ],
+  },
+  {
+    id: 'gyeongju', name: 'Gyeongju', emoji: '🏛️', image: img('gyeongju-bulguksa-autumn'),
+    tagline: 'Ancient Korea, slow pace, completely different atmosphere to Seoul.',
+    highlights: [
+      { name: 'Tumuli Park (Daereungwon)', description: 'Royal burial mounds from the 5th–6th century, now a park. Your child will want to roll down them. You will find this genuinely strange and beautiful.', practical: '₩3,000 · 1–1.5 hrs · Walk between sites' },
+      { name: 'Bulguksa Temple', description: "One of Korea's most significant Buddhist temples, in forested hills. October foliage makes this exceptional.", practical: '₩6,000 · Bus from city centre · 2 hrs · Morning' },
+      { name: 'Hwangnam Bread', description: 'The famous local pastry — small wheat cakes filled with red bean paste. Your child will eat several.', practical: '₩1,200 each · Buy a box' },
+      { name: 'Donggung Palace & Wolji Pond at Night', description: '7th century royal pleasure garden, lit at night. October evenings here are genuinely atmospheric.', practical: '₩3,000 · 1 hr' },
+    ],
+  },
+  {
+    id: 'jeonju', name: 'Jeonju', emoji: '🍚', image: img('jeonju-hanok-village-misty'),
+    tagline: 'Food, traditional architecture, craft. This is where Korean food comes from.',
+    highlights: [
+      { name: 'Hanok Village', description: '700+ traditional hanok houses, most now housing cafés, restaurants, and craft shops. More authentic than Bukchon because people actually live here.', practical: 'Free · Walk everywhere · Morning is best' },
+      { name: 'Bibimbap', description: 'Jeonju bibimbap is categorically different from what you get in Seoul. Order at a proper restaurant. The dolsot version is appropriate for children.', practical: '₩10,000–15,000 · Ask your hotel' },
+      { name: 'Nambu Market + Night Market', description: 'Friday and Saturday night market — street food, live music, local producers. Your child will lose their mind at the food variety.', practical: '₩2,000–5,000 per item · Friday/Saturday evenings' },
+      { name: 'Hanji Paper Making', description: 'Traditional Korean paper-making workshops. Interactive, your child does it. 45 minutes.', practical: '₩10,000–15,000 · Book ahead' },
+    ],
+  },
+]
+
+const SHORTLISTS = [
+  {
+    id: 'kids', label: 'Kids — Interactive Activities', icon: '⭐',
+    columns: ['Activity', 'Location', 'Age', 'Cost'],
+    rows: [
+      ['Lotte World (morning only)','Jamsil, Seoul','Perfect for 6–8','₩62,000 child'],
+      ["Children's Grand Park + Zoo",'Gwangjin, Seoul','Great','Free entry'],
+      ["National Folk Museum Children's Museum",'Gyeongbokgung, Seoul','Good','Included in palace'],
+      ['Hanji paper workshop','Jeonju','Excellent hands-on','₩10,000–15,000'],
+      ['Gamcheon Village maze','Busan','Great wandering','Free'],
+      ['Tumuli Park burial mounds','Gyeongju','Strange and fun','₩3,000'],
+    ],
+  },
+  {
+    id: 'food', label: 'Street Food — Child-Safe', icon: '🥟',
+    columns: ['Food', 'What it is', 'Child verdict', 'Where'],
+    rows: [
+      ['Mayak gimbap','Tiny seaweed rice rolls, sesame dipping sauce','Almost always yes','Gwangjang Market'],
+      ['Bindaetteok','Fried mung bean pancake, savoury','Yes','Gwangjang Market'],
+      ['Hotteok','Sweet filled pancake, fried','Always yes','Every market'],
+      ['Mandu','Steamed or fried dumplings','Yes (avoid kimchi filling)','Everywhere'],
+      ['Tteokbokki','Rice cakes in sauce — ask for mild','Yes if not spicy','Every street corner'],
+      ['Ssiat hotteok','Black sesame and seed pancake','Yes','Gukje Market, Busan'],
+      ['Jeonju bibimbap','Rice bowl, choose your toppings','Good — they build it','Jeonju'],
+      ['Bungeoppang','Fish-shaped waffle with sweet filling','Always yes','Seoul autumn markets'],
+    ],
+  },
+  {
+    id: 'cafes', label: 'People-Watching Cafés', icon: '☕',
+    columns: ['Café / Spot', 'Neighbourhood', 'Why', 'Cost'],
+    rows: [
+      ['Cafe Onion Anguk','Anguk, Seoul','Hanok courtyard, window seats, good coffee','₩6,000–9,000'],
+      ['Daelim Warehouse','Seongsu, Seoul','Industrial-converted, good corner seats','₩6,000–8,000'],
+      ['Ikseon-dong — any café','Ikseon, Seoul','Best street in central Seoul','₩5,000–8,000'],
+      ['Café in Hannam-dong','Hannam, Seoul','Fashion Seoul, mixed crowd, excellent light','₩7,000–10,000'],
+      ['Jeonju Hanok Village café','Jeonju','Morning mist, locals and visitors, slow pace','₩4,000–7,000'],
+      ['Jongno 3-ga pojangmacha','Jongno, Seoul','Old Seoul, soju tent, plastic chairs, real','₩1,000–3,000'],
+    ],
+  },
+  {
+    id: 'landmarks', label: 'Landmarks Worth Your Time', icon: '🗺️',
+    columns: ['Landmark', 'Why this one', 'Skip if'],
+    rows: [
+      ['Changdeokgung + Secret Garden','Most beautiful palace, October foliage','Already palaced out'],
+      ['Dongdaemun Design Plaza (DDP)','Zaha Hadid. Enough said.','You want quiet'],
+      ['Leeum Samsung Museum','Best contemporary Korean art, extraordinary building','Short on time — needs 2 hrs'],
+      ['Bukchon Hanok Village','Beautiful 45 min wander','Expecting a destination'],
+      ['Bulguksa Temple, Gyeongju','The real thing, in the hills, in autumn','No time for Gyeongju'],
+      ['Gamcheon Culture Village, Busan','Colour, scale, art, maze — worth the trip','Mobility issues — steep'],
+    ],
+  },
+]
+
+const PRACTICAL_NOTES = [
+  {
+    id: 'transport', title: 'Getting Around Seoul',
+    content: [
+      'T-money card: buy at any convenience store or subway station, ₩2,500 + top up. Works on subway, bus, and some taxis.',
+      "Kakao T app: book taxis. Select 'Kakao Taxi' (black cars) for reliability. Most drivers do not speak English — show your destination written in Korean.",
+      "Subway: Seoul's system is excellent, well-signposted in English. Lines are colour-coded. Google Maps works perfectly.",
+    ],
+  },
+  {
+    id: 'weather-notes', title: 'October Weather',
+    content: [
+      'Average: 10–18°C. Crisp mornings and evenings, warm midday.',
+      'Foliage peaks late October — Changdeokgung, Namsan, Bulguksa will be at their best.',
+      'Layers essential. Rain jacket useful but October is typically dry.',
+    ],
+  },
+  {
+    id: 'child', title: 'With a Child',
+    content: [
+      'Korean people are exceptionally warm towards children travelling with parents. Your child will be spoken to, offered food, and occasionally celebrated.',
+      'Convenience stores (CU, GS25, 7-Eleven) are everywhere and child-appropriate for emergency snacks: kimbap, onigiri, ramen, banana milk, corn dogs.',
+      'Most major attractions have straightforward accessible entry — no hidden staircases at the main sites.',
+    ],
+  },
+  {
+    id: 'money', title: 'Money',
+    content: [
+      'Korea is increasingly card-friendly but many smaller street stalls and pojangmacha are cash only.',
+      'Withdraw ₩200,000–300,000 on arrival (roughly £120–180). Top up as needed from GS25 ATMs (most accept foreign cards).',
+    ],
+  },
+  {
+    id: 'before', title: 'Before You Go',
+    content: [
+      'Korail app or website for KTX tickets to second city — book before departure.',
+      'Check Cheonggyecheon Lantern Festival dates (usually mid-October) — coincides with your trip.',
+      "Download Papago (Naver's translation app) — better than Google Translate for Korean.",
+    ],
+  },
+]
+
+const MAP_LOCATIONS = {
+  day1: [
+    { id: 'gyeongbokgung', name: 'Gyeongbokgung Palace', coords: [37.5796, 126.9770], transport: 'Subway line 3' },
+    { id: 'bukchon', name: 'Bukchon Hanok Village', coords: [37.5823, 126.9830], transport: 'walk' },
+    { id: 'insadong', name: 'Insadong', coords: [37.5745, 126.9833], transport: 'walk' },
+    { id: 'gwangjang-light', name: 'Gwangjang Market', coords: [37.5697, 126.9988], transport: 'Subway line 1' },
+  ],
+  day2: [
+    { id: 'folk-museum', name: "Children's Museum", coords: [37.5796, 126.9770], transport: 'Subway line 3' },
+    { id: 'ikseon-wander', name: 'Ikseon-dong', coords: [37.5762, 126.9927], transport: 'walk' },
+    { id: 'changdeokgung', name: 'Changdeokgung', coords: [37.5792, 126.9910], transport: 'walk' },
+    { id: 'cafe-onion', name: 'Cafe Onion Anguk', coords: [37.5765, 126.9822], transport: 'walk' },
+    { id: 'jongno-dusk', name: 'Jongno 3-ga', coords: [37.5697, 126.9937], transport: 'Subway line 3' },
+  ],
+  day3: [
+    { id: 'lotte-world', name: 'Lotte World', coords: [37.5111, 127.0983], transport: 'Subway line 2' },
+    { id: 'gwangjang-full', name: 'Gwangjang Market', coords: [37.5697, 126.9988], transport: 'Subway line 1' },
+    { id: 'ddp', name: 'Dongdaemun Design Plaza', coords: [37.5666, 127.0094], transport: 'Subway line 2/4/5' },
+    { id: 'cheonggyecheon', name: 'Cheonggyecheon Stream', coords: [37.5697, 126.9767], transport: 'walk' },
+  ],
+  day4: [
+    { id: 'seongsu', name: 'Seongsu-dong', coords: [37.5445, 127.0559], transport: 'Subway line 2' },
+    { id: 'leeum', name: 'Leeum Museum of Art', coords: [37.5387, 126.9983], transport: 'Subway line 6' },
+    { id: 'itaewon-hannam', name: 'Itaewon / Hannam', coords: [37.5340, 126.9946], transport: 'walk' },
+  ],
+  day5: [
+    { id: 'namsan', name: 'Namsan Tower', coords: [37.5512, 126.9902], transport: 'Cable car' },
+    { id: 'hangang', name: 'Han River / Yeouido', coords: [37.5260, 126.9282], transport: 'Subway line 5' },
+    { id: 'hongdae', name: 'Hongdae', coords: [37.5577, 126.9243], transport: 'Subway line 2' },
+  ],
+}
+
+const SLOT_ICONS = { morning: '🌅', lunch: '🍜', afternoon: '☀️', dinner: '🌙', fullday: '📅' }
+const TABS = [
+  ...DAYS.map(d => ({ id: d.id, label: d.label })),
+  { id: 'secondcity', label: '🚄 City 2' },
+  { id: 'myplan', label: '✦ My Plan' },
+]
+const KUROMI_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><path d="M3,7 L10,11 L3,15 Z M17,7 L10,11 L17,15 Z" fill="#7c3aed" opacity="0.07"/><circle cx="10" cy="11" r="1.5" fill="#9333ea" opacity="0.09"/><text x="36" y="44" font-size="8" font-family="serif" fill="#7c3aed" opacity="0.05">✦</text><circle cx="50" cy="16" r="1" fill="#9333ea" opacity="0.05"/><circle cx="28" cy="50" r="0.8" fill="#7c3aed" opacity="0.04"/></svg>`
+
+const card = 'bg-white rounded-2xl border border-purple-100 shadow-sm'
+const cardSelected = 'bg-violet-50 rounded-2xl border-2 border-violet-400 shadow-sm'
+const QUADRANT_LABELS = ['Safe · Quick', 'Safe · Lingering', 'Bold · Quick', 'Bold · Lingering']
+
+function isDayComplete(day, selections) {
+  return day.slots
+    .filter(s => s.type === 'cards' && (s.options?.length || 0) > 1)
+    .every(s => !!selections[`${day.id}-${s.id}`])
+}
+
+// ── OPTION CARD ───────────────────────────────────────────────────────────────
+function OptionCard({ option, selected, onSelect, single = false }) {
+  const cardClass = [
+    'w-full text-left rounded-2xl overflow-hidden relative group transition-all duration-200',
+    single ? `${card} cursor-default`
+      : selected ? `${cardSelected} cursor-pointer hover:scale-[1.01]`
+      : `${card} cursor-pointer opacity-70 hover:opacity-100 hover:scale-[1.01] hover:border-purple-200 hover:shadow-md`,
+  ].join(' ')
+  return (
+    <button onClick={() => !single && onSelect(option.id)} disabled={single} className={cardClass}>
+      {option.image && (
+        <div className="relative h-36 overflow-hidden">
+          <img src={option.image} alt={option.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" loading="lazy" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/20" />
+        </div>
+      )}
+      <div className="p-4">
+        {selected && !single && (
+          <span className="absolute top-3 right-3 w-6 h-6 rounded-full bg-violet-600 flex items-center justify-center shadow-md z-10">
+            <Check size={12} className="text-white" strokeWidth={3} />
+          </span>
+        )}
+        <p className={`font-semibold text-sm leading-snug mb-2 tracking-tight ${selected ? 'text-violet-900 pr-7' : 'text-slate-900 pr-2'}`}>{option.title}</p>
+        <p className="text-slate-500 text-xs leading-relaxed mb-3">{option.description}</p>
+        {(option.pros || option.cons) && (
+          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100">
+            <div>{(option.pros || []).map((p, i) => (
+              <div key={i} className="flex items-start gap-1 mb-1">
+                <span className="text-violet-500 text-[10px] mt-px leading-none">✓</span>
+                <span className="text-slate-500 text-[10px] leading-tight">{p}</span>
+              </div>
+            ))}</div>
+            <div>{(option.cons || []).map((c, i) => (
+              <div key={i} className="flex items-start gap-1 mb-1">
+                <span className="text-slate-300 text-[10px] mt-px leading-none">✕</span>
+                <span className="text-slate-400 text-[10px] leading-tight">{c}</span>
+              </div>
+            ))}</div>
+          </div>
+        )}
+        {option.practical && (
+          <p className="mt-2.5 pt-2.5 border-t border-slate-100 text-slate-400 text-[10px] leading-relaxed">{option.practical}</p>
+        )}
+      </div>
+    </button>
+  )
+}
+
+// ── MEAL SLIDERS ──────────────────────────────────────────────────────────────
+function MealSliders({ dayId, slotId, sliderState, onSliderChange }) {
+  const adv = sliderState[`${dayId}-${slotId}-adv`] ?? 0
+  const pace = sliderState[`${dayId}-${slotId}-pace`] ?? 0
+  const quadrant = (adv >= 50 ? 1 : 0) * 2 + (pace >= 50 ? 1 : 0)
+  const recs = MEAL_RECS[dayId]?.[slotId] || []
+  const rec = recs[[0, 1, 2, 3][quadrant]] || recs[0]
+  return (
+    <div className="space-y-3">
+      <div>
+        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Spirit</span>
+        <input type="range" min="0" max="100" step="1" value={adv}
+          onChange={e => onSliderChange(`${dayId}-${slotId}-adv`, Number(e.target.value))}
+          className="range-slider"
+          style={{ background: `linear-gradient(to right, #7c3aed ${adv}%, #e5e7eb ${adv}%)` }} />
+        <div className="flex justify-between text-[10px] text-slate-300"><span>Safe</span><span>Bold</span></div>
+      </div>
+      <div>
+        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Pace</span>
+        <input type="range" min="0" max="100" step="1" value={pace}
+          onChange={e => onSliderChange(`${dayId}-${slotId}-pace`, Number(e.target.value))}
+          className="range-slider"
+          style={{ background: `linear-gradient(to right, #7c3aed ${pace}%, #e5e7eb ${pace}%)` }} />
+        <div className="flex justify-between text-[10px] text-slate-300"><span>Quick</span><span>Linger</span></div>
+      </div>
+      {rec && (
+        <div className="bg-violet-50 rounded-xl p-3 border border-violet-100">
+          <span className="inline-block text-[9px] bg-violet-100 text-violet-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider mb-1.5">{QUADRANT_LABELS[quadrant]}</span>
+          <p className="text-slate-900 text-xs font-semibold leading-snug mb-0.5">{rec.label}</p>
+          <p className="text-slate-500 text-[10px] leading-relaxed">{rec.desc}</p>
+          <p className="text-violet-600 text-[10px] mt-1 font-medium">{rec.cost}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SNACK CARD ────────────────────────────────────────────────────────────────
+function SnackCard({ snack }) {
+  return (
+    <div className="mt-3 rounded-xl px-4 py-3 border border-amber-100 bg-amber-50 flex items-start gap-3">
+      <span className="text-lg mt-0.5">🍡</span>
+      <div>
+        <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mb-0.5">Snack stop</p>
+        <p className="text-slate-800 text-xs font-semibold">{snack.name}</p>
+        <p className="text-slate-500 text-[10px] leading-relaxed mt-0.5">{snack.description}</p>
+        <p className="text-violet-500 text-[10px] mt-1">{snack.cost}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── SLOT SECTION ──────────────────────────────────────────────────────────────
+function SlotSection({ slot, slotKey, selections, onSelect }) {
+  if (slot.type === 'sliders') return null
+  const selected = selections[slotKey]
+  const single = slot.options?.length === 1
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-sm">{SLOT_ICONS[slot.id] || '·'}</span>
+        <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em]">{slot.label}</h3>
+      </div>
+      <div className={`grid gap-3 ${slot.options?.length >= 2 ? 'sm:grid-cols-2' : ''} ${slot.options?.length === 3 ? 'lg:grid-cols-3' : ''}`}>
+        {(slot.options || []).map(opt => (
+          <OptionCard key={opt.id} option={opt} selected={selected === opt.id} single={single} onSelect={id => onSelect(slotKey, id)} />
+        ))}
+      </div>
+      {slot.snack && <SnackCard snack={slot.snack} />}
+    </div>
+  )
+}
+
+// ── DAY VIEW ──────────────────────────────────────────────────────────────────
+function DayView({ day, selections, onSelect }) {
+  return (
+    <div>
+      <div className="mb-8 pb-5 border-b border-slate-100">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight leading-tight mb-1">{day.title}</h2>
+        <p className="text-slate-400 text-sm italic leading-relaxed">{day.subtitle}</p>
+      </div>
+      {day.slots.map(slot => (
+        <SlotSection key={slot.id} slot={slot} slotKey={`${day.id}-${slot.id}`} selections={selections} onSelect={onSelect} />
+      ))}
+    </div>
+  )
+}
+
+// ── SECOND CITY ───────────────────────────────────────────────────────────────
+function SecondCityCard({ city, selected, onSelect }) {
+  return (
+    <button onClick={() => onSelect(city.id)}
+      className={['w-full text-left rounded-2xl overflow-hidden group transition-all duration-200',
+        selected ? `${cardSelected} hover:scale-[1.01]` : `${card} opacity-70 hover:opacity-100 cursor-pointer hover:scale-[1.01] hover:border-purple-200 hover:shadow-md`].join(' ')}>
+      <div className="relative h-48 overflow-hidden">
+        <img src={city.image} alt={city.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" loading="lazy" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/5 to-black/55" />
+        <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between">
+          <div>
+            <span className="text-xl">{city.emoji}</span>
+            <h3 className="text-2xl font-bold tracking-tight text-white leading-tight">{city.name}</h3>
+          </div>
+          {selected && (
+            <span className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center shadow-lg flex-shrink-0">
+              <Check size={14} className="text-white" strokeWidth={3} />
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="p-4">
+        <p className="text-slate-500 text-xs mb-3 leading-snug">{city.tagline}</p>
+        <div className="space-y-2.5">
+          {city.highlights.map((h, i) => (
+            <div key={i} className="border-t border-slate-100 pt-2.5">
+              <p className={`text-xs font-semibold mb-0.5 ${selected ? 'text-violet-700' : 'text-slate-700'}`}>{h.name}</p>
+              <p className="text-slate-500 text-xs leading-relaxed">{h.description}</p>
+              <p className="text-slate-400 text-xs mt-1">{h.practical}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function SecondCityView({ selections, onSelect }) {
+  return (
+    <div>
+      <div className="mb-8 pb-5 border-b border-slate-100">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight mb-1">Second City — Days 6–7</h2>
+        <p className="text-slate-400 text-sm italic">All 2–3 hours from Seoul by KTX. Book tickets at korail.go.kr or on the Korail app before departure.</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {SECOND_CITIES.map(city => (
+          <SecondCityCard key={city.id} city={city} selected={selections['secondcity'] === city.id} onSelect={id => onSelect('secondcity', id)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── ACCORDION ─────────────────────────────────────────────────────────────────
+function Accordion({ title, icon, open, onToggle, children }) {
+  return (
+    <div className={`rounded-xl overflow-hidden border transition-colors duration-200 ${open ? 'border-purple-200' : 'border-slate-200'}`}>
+      <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-violet-50/60 transition-colors">
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 tracking-tight">
+          {icon && <span>{icon}</span>}{title}
+        </span>
+        {open ? <ChevronUp size={15} className="text-slate-400 flex-shrink-0" /> : <ChevronDown size={15} className="text-slate-400 flex-shrink-0" />}
+      </button>
+      {open && <div className="border-t border-slate-100">{children}</div>}
+    </div>
+  )
+}
+
+function ShortlistTable({ list }) {
+  return (
+    <div className="overflow-x-auto bg-slate-50">
+      <table className="w-full text-xs">
+        <thead>
+          <tr>{list.columns.map((col, i) => <th key={i} className="px-4 py-2.5 text-left text-slate-400 font-semibold uppercase tracking-wider whitespace-nowrap text-[10px]">{col}</th>)}</tr>
+        </thead>
+        <tbody>
+          {list.rows.map((row, i) => (
+            <tr key={i} className="border-t border-slate-100 hover:bg-violet-50/50 transition-colors">
+              {row.map((cell, j) => <td key={j} className={`px-4 py-3 align-top ${j === 0 ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── WEATHER WIDGET ────────────────────────────────────────────────────────────
+const WX_CODES = {0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',71:'🌨️',73:'🌨️',75:'❄️',80:'🌦️',81:'🌧️',82:'⛈️',95:'⛈️',96:'⛈️',99:'⛈️'}
+const PACKING = {0:"Light layers — you won't need a jacket mid-afternoon.",1:'Layers recommended. Nice day overall.',2:'Bring a light jacket.',3:'Overcast but dry. Layer up.',45:'Misty morning — bring layers.',48:'Foggy. Atmospheric for the palaces.',51:'Light drizzle possible — pack a compact umbrella.',53:'Light drizzle likely.',55:'Drizzle. Compact umbrella essential.',61:'Rain jacket needed.',63:'Proper rain jacket. Good museum day.',65:'Heavy rain. Indoor day.',71:'Light snow. Unlikely in October.',80:'Showers. Umbrella.',81:'Showers, heavier.',82:'Heavy showers. Indoor plan.',95:'Thunderstorm possible. Stay close to shelter.'}
+
+function WeatherWidget() {
+  const [wx, setWx] = useState(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=Asia%2FSeoul&forecast_days=1')
+      .then(r => r.json())
+      .then(d => {
+        const daily = d.daily
+        setWx({ max: Math.round(daily.temperature_2m_max[0]), min: Math.round(daily.temperature_2m_min[0]), rain: daily.precipitation_probability_max[0], code: daily.weathercode[0] })
+      })
+      .catch(() => setError(true))
+  }, [])
+  const emoji = wx ? (WX_CODES[wx.code] || '🌡️') : '…'
+  const tip = wx ? (PACKING[wx.code] || 'Layers recommended.') : null
+  return (
+    <div className={`${card} p-4`}>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em] mb-3">Seoul · Today</p>
+      {error ? <p className="text-slate-400 text-xs">Weather unavailable</p> : (
+        <>
+          <div className="flex items-end gap-3 mb-3">
+            <span className="text-4xl leading-none">{emoji}</span>
+            <div>
+              {wx ? (<><p className="text-3xl font-bold text-slate-900 tracking-tight leading-none">{wx.max}°</p><p className="text-slate-400 text-xs mt-1">{wx.min}°–{wx.max}° · Seoul</p></>) : <p className="text-slate-400 text-sm">Loading…</p>}
+            </div>
+          </div>
+          {wx && (
+            <>
+              <div className="mb-2">
+                <div className="flex justify-between text-xs mb-1"><span className="text-slate-400">Rain</span><span className="text-slate-700 font-semibold">{wx.rain}%</span></div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${wx.rain}%` }} /></div>
+              </div>
+              {tip && <p className="text-slate-400 text-[10px] leading-relaxed mt-2">{tip}</p>}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── CURRENCY WIDGET ───────────────────────────────────────────────────────────
+function CurrencyWidget() {
+  const [krwAmount, setKrwAmount] = useState(50000)
+  const [rate, setRate] = useState(null)
+  const [fetchedAt, setFetchedAt] = useState(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    fetch('https://api.frankfurter.app/latest?from=KRW&to=GBP')
+      .then(r => r.json())
+      .then(d => { setRate(d.rates.GBP); setFetchedAt(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) })
+      .catch(() => setError(true))
+  }, [])
+  const gbp = rate ? (krwAmount * rate).toFixed(2) : null
+  const gbpToKrw = rate ? Math.round(1 / rate).toLocaleString('en-GB') : null
+  const max = 500000
+  const pct = Math.round((krwAmount / max) * 100)
+  return (
+    <div className={`${card} p-4`}>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em] mb-3">₩ → £</p>
+      {error ? <p className="text-slate-400 text-xs">Rate unavailable</p> : (
+        <>
+          <div className="relative mt-5 mb-1">
+            <div className="absolute -top-4 text-violet-600 text-[10px] font-bold pointer-events-none" style={{ left: `calc(${pct}% - ${Math.round(pct * 0.3)}px)` }}>
+              ₩{krwAmount.toLocaleString('en-GB')}
+            </div>
+            <input type="range" min="0" max={max} step="1000" value={krwAmount}
+              onChange={e => setKrwAmount(Number(e.target.value))}
+              className="range-slider"
+              style={{ background: `linear-gradient(to right, #7c3aed ${pct}%, #e5e7eb ${pct}%)` }} />
+            <div className="flex justify-between text-[10px] text-slate-300 mt-1"><span>₩0</span><span>₩500k</span></div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            {gbp ? (<><p className="text-xl font-bold text-slate-900 tracking-tight">£{gbp}</p><p className="text-slate-400 text-[10px] mt-1">£1 = ₩{gbpToKrw} · {fetchedAt}</p></>) : <p className="text-slate-400 text-sm">Loading…</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── DAY SIDEBAR ───────────────────────────────────────────────────────────────
+function DaySidebar({ activeDay, sliderState, onSliderChange }) {
+  const mealSlots = activeDay?.slots?.filter(s => s.type === 'sliders') || []
+  return (
+    <div className="space-y-4">
+      <WeatherWidget />
+      <CurrencyWidget />
+      {mealSlots.length > 0 && (
+        <div className={`${card} p-4`}>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em] mb-4">Meals</p>
+          <div className="space-y-5">
+            {mealSlots.map((slot, i) => (
+              <div key={slot.id}>
+                {i > 0 && <div className="border-t border-slate-100 mb-5" />}
+                <div className="flex items-center gap-1.5 mb-3">
+                  <span className="text-sm">{SLOT_ICONS[slot.id]}</span>
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em]">{slot.label}</h4>
+                </div>
+                <MealSliders dayId={slot.dayId} slotId={slot.id} sliderState={sliderState} onSliderChange={onSliderChange} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── MAP SECTION ───────────────────────────────────────────────────────────────
+function MapSection({ activeTab }) {
+  const mapRef = useRef(null)
+  const instanceRef = useRef(null)
+  const layerRef = useRef(null)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (!mapRef.current) return
+    const tryInit = () => {
+      if (!window.L) { setTimeout(tryInit, 200); return }
+      const L = window.L
+      const map = L.map(mapRef.current, { center: [37.5519, 127.0000], zoom: 12, zoomControl: true, scrollWheelZoom: false })
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map)
+      instanceRef.current = map
+      layerRef.current = L.layerGroup().addTo(map)
+      setReady(true)
+    }
+    tryInit()
+    return () => { instanceRef.current?.remove(); instanceRef.current = null }
+  }, [])
+  useEffect(() => {
+    if (!ready || !window.L || !layerRef.current) return
+    const L = window.L
+    layerRef.current.clearLayers()
+    const locs = MAP_LOCATIONS[activeTab]
+    if (!locs) return
+    if (locs.length > 1) {
+      L.polyline(locs.map(l => l.coords), { color: '#7c3aed', weight: 3, opacity: 0.6, dashArray: '6 4' }).addTo(layerRef.current)
+    }
+    locs.forEach((loc, i) => {
+      const icon = L.divIcon({
+        html: `<div style="width:30px;height:30px;background:#7c3aed;border-radius:50%;border:2px solid #c4b5fd;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:-apple-system,system-ui,sans-serif;box-shadow:0 0 10px rgba(124,58,237,0.45);">${i + 1}</div>`,
+        className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+      })
+      L.marker(loc.coords, { icon }).addTo(layerRef.current).bindPopup(`<b>${loc.name}</b><br><small>${loc.transport}</small>`)
+      if (i > 0 && loc.transport) {
+        const prev = locs[i - 1]
+        const labelIcon = L.divIcon({
+          html: `<div style="background:rgba(255,255,255,0.92);border:1px solid #c4b5fd;color:#7c3aed;font-size:9px;padding:2px 5px;border-radius:4px;white-space:nowrap;font-family:-apple-system,system-ui,sans-serif;">${loc.transport}</div>`,
+          className: '', iconSize: [1, 1], iconAnchor: [0, 0],
+        })
+        L.marker([(prev.coords[0] + loc.coords[0]) / 2, (prev.coords[1] + loc.coords[1]) / 2], { icon: labelIcon }).addTo(layerRef.current)
+      }
+    })
+    if (locs.length === 1) {
+      instanceRef.current.setView(locs[0].coords, 14, { animate: true })
+    } else {
+      instanceRef.current.fitBounds(L.latLngBounds(locs.map(l => l.coords)), { padding: [55, 55], maxZoom: 14, animate: true })
+    }
+  }, [ready, activeTab])
+  return (
+    <section className="mt-8 mb-2">
+      <div className="flex items-center gap-2.5 mb-3">
+        <span className="text-violet-400 text-xs">✦</span>
+        <h2 className="text-sm font-bold text-slate-800 tracking-tight">Day Route</h2>
+        <span className="text-slate-300 text-xs">numbered in visit order</span>
+      </div>
+      <div ref={mapRef} className="rounded-2xl overflow-hidden border border-purple-100 shadow-sm" style={{ height: '340px' }} />
+    </section>
+  )
+}
+
+// ── MY PLAN VIEW ──────────────────────────────────────────────────────────────
+function MyPlanView({ selections, sliderState }) {
+  const hasAny = Object.keys(selections).length > 0
+  if (!hasAny) {
+    return (
+      <div className="text-center py-24">
+        <div className="text-5xl mb-4 opacity-30">♠</div>
+        <p className="text-slate-600 font-medium">No choices saved yet.</p>
+        <p className="text-slate-400 text-sm mt-1">Head to each day tab and pick your activities.</p>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <div className="mb-8 pb-5 border-b border-slate-100">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight mb-1">My Plan</h2>
+        <p className="text-slate-400 text-sm italic">Your Korea trip, as planned.</p>
+      </div>
+      <div className="space-y-4">
+        {DAYS.map(day => {
+          const activitySlots = day.slots.filter(s => s.type === 'cards')
+          const mealSlots = day.slots.filter(s => s.type === 'sliders')
+          const selectedActivities = activitySlots.map(slot => {
+            const selectedId = selections[`${day.id}-${slot.id}`]
+            const option = slot.options?.find(o => o.id === selectedId)
+            return option ? { slot, option } : null
+          }).filter(Boolean)
+          const mealRecs = mealSlots.map(slot => {
+            const adv = sliderState[`${day.id}-${slot.id}-adv`] ?? 0
+            const pace = sliderState[`${day.id}-${slot.id}-pace`] ?? 0
+            const quadrant = (adv >= 50 ? 1 : 0) * 2 + (pace >= 50 ? 1 : 0)
+            const recs = MEAL_RECS[day.id]?.[slot.id] || []
+            const rec = recs[[0, 1, 2, 3][quadrant]] || recs[0]
+            return { slot, rec }
+          })
+          if (selectedActivities.length === 0) return (
+            <div key={day.id} className={`${card} p-4 opacity-50`}>
+              <p className="text-[10px] font-bold text-violet-500 uppercase tracking-wider mb-0.5">{day.label}</p>
+              <p className="text-slate-700 text-sm font-semibold">{day.title}</p>
+              <p className="text-slate-400 text-[10px] mt-1">No activities selected yet.</p>
+            </div>
+          )
+          return (
+            <div key={day.id} className={`${card} p-5`}>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wider">{day.label}</span>
+                <span className="text-slate-200 text-sm">·</span>
+                <span className="text-slate-700 font-semibold text-sm">{day.title}</span>
+              </div>
+              <div className="space-y-3">
+                {selectedActivities.map(({ slot, option }) => (
+                  <div key={slot.id} className="flex gap-2.5 items-start">
+                    <span className="text-base flex-shrink-0">{SLOT_ICONS[slot.id] || '·'}</span>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">{option.title}</p>
+                      {option.practical && <p className="text-[10px] text-slate-400 mt-0.5">{option.practical}</p>}
+                    </div>
+                  </div>
+                ))}
+                {mealRecs.map(({ slot, rec }) => rec && (
+                  <div key={slot.id} className="flex gap-2.5 items-start">
+                    <span className="text-base flex-shrink-0">{SLOT_ICONS[slot.id] || '·'}</span>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">{rec.label}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{rec.cost}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+        {(() => {
+          const city = SECOND_CITIES.find(c => c.id === selections['secondcity'])
+          if (!city) return null
+          return (
+            <div key="secondcity" className={`${card} p-5`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wider">Days 6–7</span>
+                <span className="text-slate-200 text-sm">·</span>
+                <span className="text-slate-700 font-semibold text-sm">{city.emoji} {city.name}</span>
+              </div>
+              <p className="text-slate-500 text-xs">{city.tagline}</p>
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'korea-trip-v2'
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }
+  catch { return {} }
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState('day1')
+  const saved = loadState()
+  const [selections, setSelections] = useState(saved.selections || {})
+  const [sliderState, setSliderState] = useState(saved.sliders || {})
+  const [openShortlists, setOpenShortlists] = useState([])
+  const [openNotes, setOpenNotes] = useState([])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ selections, sliders: sliderState }))
+  }, [selections, sliderState])
+
+  useEffect(() => {
+    const encoded = encodeURIComponent(KUROMI_SVG)
+    document.body.style.backgroundImage = `url("data:image/svg+xml,${encoded}")`
+    document.body.style.backgroundRepeat = 'repeat'
+    document.body.style.backgroundColor = '#f7f5fb'
+    return () => { document.body.style.backgroundImage = '' }
+  }, [])
+
+  function handleSelect(slotKey, optionId) {
+    setSelections(prev => {
+      if (prev[slotKey] === optionId) { const n = { ...prev }; delete n[slotKey]; return n }
+      return { ...prev, [slotKey]: optionId }
+    })
+  }
+
+  function handleSlider(key, value) {
+    setSliderState(prev => ({ ...prev, [key]: value }))
+  }
+
+  function handleClear() {
+    if (window.confirm('Clear all saved choices? This cannot be undone.')) {
+      setSelections({})
+      setSliderState({})
+    }
+  }
+
+  const activeDay = DAYS.find(d => d.id === activeTab)
+  const totalSelections = Object.keys(selections).length
+  const isContentTab = activeTab !== 'secondcity' && activeTab !== 'myplan'
+
+  return (
+    <div className="min-h-screen text-slate-900">
+      <header className="text-center py-8 px-4 bg-white border-b border-purple-100 shadow-sm">
+        <div className="text-violet-400 text-sm tracking-[0.5em] mb-3">♠ ✦ ♠</div>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-tight">
+          <span className="text-slate-900">Korea</span>
+          <span className="text-violet-500"> · </span>
+          <span className="text-slate-900">Late October</span>
+        </h1>
+        <p className="text-slate-400 text-sm mt-2 tracking-wide">Vale &amp; [Child] · 7–8 days · Seoul + one more city</p>
+        {totalSelections > 0 && (
+          <p className="mt-3 text-xs text-violet-400">
+            {totalSelections} {totalSelections === 1 ? 'choice' : 'choices'} saved ·{' '}
+            <button onClick={handleClear} className="text-slate-400 hover:text-slate-600 underline transition-colors">clear all</button>
+          </p>
+        )}
+      </header>
+
+      <nav className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-purple-100 shadow-sm">
+        <div className="overflow-x-auto">
+          <div className="flex gap-1 p-2 min-w-max mx-auto max-w-6xl">
+            {TABS.map(tab => {
+              const isActive = activeTab === tab.id
+              const day = DAYS.find(d => d.id === tab.id)
+              const complete = day ? isDayComplete(day, selections) : false
+              return (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                  className={`relative px-3.5 py-1.5 rounded-full text-sm font-medium transition-all duration-200 whitespace-nowrap ${isActive ? 'bg-violet-600 text-white shadow-md shadow-violet-200' : 'text-slate-600 hover:text-violet-700 hover:bg-violet-50'}`}>
+                  {tab.label}
+                  {complete && !isActive && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-white" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="lg:flex lg:gap-6 lg:items-start">
+          <aside className="hidden lg:block w-72 flex-shrink-0 sticky top-14 self-start">
+            <DaySidebar activeDay={activeDay} sliderState={sliderState} onSliderChange={handleSlider} />
+          </aside>
+          <div className="flex-1 min-w-0">
+            <div className="lg:hidden mb-6">
+              <DaySidebar activeDay={activeDay} sliderState={sliderState} onSliderChange={handleSlider} />
+            </div>
+            {activeTab === 'secondcity' ? (
+              <SecondCityView selections={selections} onSelect={handleSelect} />
+            ) : activeTab === 'myplan' ? (
+              <MyPlanView selections={selections} sliderState={sliderState} />
+            ) : activeDay ? (
+              <DayView day={activeDay} selections={selections} onSelect={handleSelect} />
+            ) : null}
+            {isContentTab && <MapSection activeTab={activeTab} />}
+
+            <section className="mt-12 pt-8 border-t border-slate-100">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-violet-400 text-xs">✦</span>
+                <h2 className="text-base font-bold text-slate-800 tracking-tight">Curated Shortlists</h2>
+              </div>
+              <div className="space-y-2">
+                {SHORTLISTS.map(list => (
+                  <Accordion key={list.id} title={list.label} icon={list.icon}
+                    open={openShortlists.includes(list.id)}
+                    onToggle={() => setOpenShortlists(prev => prev.includes(list.id) ? prev.filter(x => x !== list.id) : [...prev, list.id])}>
+                    <ShortlistTable list={list} />
+                  </Accordion>
+                ))}
+              </div>
+            </section>
+
+            <section className="mt-8 pt-8 border-t border-slate-100 mb-20">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-violet-400 text-xs">✦</span>
+                <h2 className="text-base font-bold text-slate-800 tracking-tight">Practical Notes</h2>
+              </div>
+              <div className="space-y-2">
+                {PRACTICAL_NOTES.map(note => (
+                  <Accordion key={note.id} title={note.title}
+                    open={openNotes.includes(note.id)}
+                    onToggle={() => setOpenNotes(prev => prev.includes(note.id) ? prev.filter(x => x !== note.id) : [...prev, note.id])}>
+                    <div className="px-4 py-4 space-y-3 bg-slate-50">
+                      {note.content.map((para, i) => <p key={i} className="text-slate-600 text-sm leading-relaxed">{para}</p>)}
+                    </div>
+                  </Accordion>
+                ))}
+              </div>
+              <p className="text-center text-slate-300 text-xs mt-10 tracking-[0.2em]">♠ kuromi-coded · adjust as you go ♠</p>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+</script>
+</body>
+</html>
