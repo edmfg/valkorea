@@ -11,6 +11,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
     tailwind.config = {
@@ -1269,11 +1270,64 @@ function ChatWidget({ selections, sliderState }) {
   )
 }
 
+// ── SUPABASE SYNC ─────────────────────────────────────────────────────────────
+// Cross-device sync: any device that enters the same trip code shares the plan,
+// with live realtime updates. Fill these in from Supabase → Project Settings →
+// API. The anon key is safe to ship in the client (protected by RLS).
+const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co'
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY'
+const SUPABASE_CONFIGURED = !SUPABASE_URL.includes('YOUR-PROJECT') && !SUPABASE_ANON_KEY.includes('YOUR-ANON')
+const sb = (SUPABASE_CONFIGURED && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'korea-trip-v2'
+const CODE_KEY = 'korea-trip-code'
 function loadState() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }
   catch { return {} }
+}
+function loadCode() {
+  let c = localStorage.getItem(CODE_KEY)
+  if (!c) { c = Math.random().toString(36).slice(2, 8).toUpperCase(); localStorage.setItem(CODE_KEY, c) }
+  return c
+}
+
+// ── SYNC BAR ──────────────────────────────────────────────────────────────────
+function SyncBar({ code, status, onSetCode }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(code)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => { setVal(code) }, [code])
+  if (!sb) return null
+  const dot = { syncing: 'bg-amber-400', synced: 'bg-emerald-400', offline: 'bg-rose-400' }[status] || 'bg-slate-300'
+  const label = { syncing: 'Syncing…', synced: 'Synced across devices', offline: 'Offline — saved locally' }[status] || ''
+  function copy() { try { navigator.clipboard.writeText(code) } catch {} setCopied(true); setTimeout(() => setCopied(false), 1500) }
+  function apply() { const c = val.trim().toUpperCase(); if (c) { onSetCode(c); setEditing(false) } }
+  return (
+    <div className="mt-4 inline-flex items-center gap-2 text-xs bg-white/70 border border-purple-100 rounded-full px-3 py-1.5">
+      <span className={`w-2 h-2 rounded-full ${dot}`} />
+      <span className="text-slate-400">{label}</span>
+      <span className="text-slate-200">·</span>
+      {!editing ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-slate-400">code</span>
+          <button onClick={copy} title="Copy code" className="font-mono font-bold tracking-wider text-violet-500 hover:text-violet-700">{code}</button>
+          {copied && <span className="text-emerald-500">copied!</span>}
+          <button onClick={() => setEditing(true)} className="text-slate-400 underline hover:text-slate-600 ml-1">change</button>
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && apply()} maxLength={12} autoFocus
+            placeholder="enter code"
+            className="font-mono uppercase tracking-wider border border-purple-200 rounded-md px-2 py-0.5 w-28 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200" />
+          <button onClick={apply} className="text-violet-600 font-semibold">use</button>
+          <button onClick={() => { setEditing(false); setVal(code) }} className="text-slate-400">cancel</button>
+        </span>
+      )}
+    </div>
+  )
 }
 
 function App() {
@@ -1283,10 +1337,73 @@ function App() {
   const [sliderState, setSliderState] = useState(saved.sliders || {})
   const [openShortlists, setOpenShortlists] = useState([])
   const [openNotes, setOpenNotes] = useState([])
+  const [tripCode, setTripCode] = useState(loadCode)
+  const [syncStatus, setSyncStatus] = useState(sb ? 'syncing' : 'local')
+  const applyingRemote = useRef(false)
+  const lastSaved = useRef('')
 
+  // Persist locally (always — works offline / without Supabase).
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ selections, sliders: sliderState }))
   }, [selections, sliderState])
+
+  // Load remote state for the current code, then subscribe to live changes.
+  useEffect(() => {
+    if (!sb) return
+    applyingRemote.current = true
+    setSyncStatus('syncing')
+    let channel, cancelled = false
+    ;(async () => {
+      const { data, error } = await sb.from('trip_state').select('data').eq('id', tripCode).maybeSingle()
+      if (cancelled) return
+      if (error) { setSyncStatus('offline'); applyingRemote.current = false; return }
+      if (data && data.data) {
+        lastSaved.current = JSON.stringify(data.data)
+        setSelections(data.data.selections || {})
+        setSliderState(data.data.sliders || {})
+      } else {
+        const payload = { selections, sliders: sliderState }
+        lastSaved.current = JSON.stringify(payload)
+        await sb.from('trip_state').upsert({ id: tripCode, data: payload, updated_at: new Date().toISOString() })
+      }
+      setSyncStatus('synced')
+      setTimeout(() => { applyingRemote.current = false }, 0)
+      channel = sb.channel('trip-' + tripCode)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_state', filter: 'id=eq.' + tripCode }, payload => {
+          const d = payload.new && payload.new.data
+          if (!d) return
+          const serial = JSON.stringify(d)
+          if (serial === lastSaved.current) return // ignore our own echo
+          applyingRemote.current = true
+          lastSaved.current = serial
+          setSelections(d.selections || {})
+          setSliderState(d.sliders || {})
+          setTimeout(() => { applyingRemote.current = false }, 0)
+        })
+        .subscribe()
+    })()
+    return () => { cancelled = true; if (channel) sb.removeChannel(channel) }
+  }, [tripCode])
+
+  // Save to Supabase (debounced) whenever the plan changes locally.
+  useEffect(() => {
+    if (!sb || applyingRemote.current) return
+    const payload = { selections, sliders: sliderState }
+    const serial = JSON.stringify(payload)
+    if (serial === lastSaved.current) return
+    setSyncStatus('syncing')
+    const t = setTimeout(async () => {
+      lastSaved.current = serial
+      const { error } = await sb.from('trip_state').upsert({ id: tripCode, data: payload, updated_at: new Date().toISOString() })
+      setSyncStatus(error ? 'offline' : 'synced')
+    }, 600)
+    return () => clearTimeout(t)
+  }, [selections, sliderState, tripCode])
+
+  function changeCode(c) {
+    localStorage.setItem(CODE_KEY, c)
+    setTripCode(c)
+  }
 
   useEffect(() => {
     const encoded = encodeURIComponent(KUROMI_SVG)
@@ -1334,6 +1451,7 @@ function App() {
             <button onClick={handleClear} className="text-slate-400 hover:text-slate-600 underline transition-colors">clear all</button>
           </p>
         )}
+        <div><SyncBar code={tripCode} status={syncStatus} onSetCode={changeCode} /></div>
       </header>
 
       <nav className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-purple-100 shadow-sm">
